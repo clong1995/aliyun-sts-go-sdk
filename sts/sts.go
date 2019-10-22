@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 )
 
 // Client sts client
@@ -22,6 +22,32 @@ type Client struct {
 	AccessKeySecret string
 	RoleArn         string
 	SessionName     string
+	Policy          *Policy
+}
+
+// Policy sts policy
+type Policy struct {
+	Version   string
+	Statement []PolicyStatement
+}
+
+// PolicyStatement policy statement
+type PolicyStatement struct {
+	Effect   string
+	Action   []string
+	Resource []string
+}
+
+// ToString policy to json string
+func (p *Policy) ToString() (string, error) {
+	if p == nil {
+		return "", nil
+	}
+	bs, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return string(bs), nil
 }
 
 // ServiceError sts service error
@@ -62,14 +88,20 @@ func (e *ServiceError) Error() string {
 		e.StatusCode, e.Code, e.Message, e.RequestId)
 }
 
-// NewClient New STS Client
-func NewClient(accessKeyId, accessKeySecret, roleArn, sessionName string) *Client {
+// NewClientWithPolicy New STS Client With Policy
+func NewClientWithPolicy(accessKeyID, accessKeySecret, roleArn, sessionName string, policy *Policy) *Client {
 	return &Client{
-		AccessKeyId:     accessKeyId,
+		AccessKeyId:     accessKeyID,
 		AccessKeySecret: accessKeySecret,
 		RoleArn:         roleArn,
 		SessionName:     sessionName,
+		Policy:          policy,
 	}
+}
+
+// NewClient New STS Client
+func NewClient(accessKeyID, accessKeySecret, roleArn, sessionName string) *Client {
+	return NewClientWithPolicy(accessKeyID, accessKeySecret, roleArn, sessionName, nil)
 }
 
 const (
@@ -106,6 +138,10 @@ func (c *Client) AssumeRole(expiredTime uint) (*Response, error) {
 
 // Private function
 func (c *Client) generateSignedURL(expiredTime uint) (string, error) {
+	policy, err := c.Policy.ToString()
+	if err != nil {
+		return "", err
+	}
 	queryStr := "SignatureVersion=" + StsSignVersion
 	queryStr += "&Format=" + RespBodyFormat
 	queryStr += "&Timestamp=" + url.QueryEscape(time.Now().UTC().Format(TimeFormat))
@@ -114,8 +150,9 @@ func (c *Client) generateSignedURL(expiredTime uint) (string, error) {
 	queryStr += "&AccessKeyId=" + c.AccessKeyId
 	queryStr += "&SignatureMethod=HMAC-SHA1"
 	queryStr += "&Version=" + StsAPIVersion
+	queryStr += "&Policy=" + policy
 	queryStr += "&Action=AssumeRole"
-	queryStr += "&SignatureNonce=" + uuid.NewV4().String()
+	queryStr += "&SignatureNonce=" + uuid.Must(uuid.NewV4()).String()
 	queryStr += "&DurationSeconds=" + strconv.FormatUint((uint64)(expiredTime), 10)
 
 	// Sort query string
